@@ -1,17 +1,4 @@
 """
-CPU/GPU Sensor Overlay Bar
------------------------------
-Shows sensors grouped by component (e.g. "CPU 53C 62W", "GPU 53C 110W")
-in a small always-on-top bar docked above the bottom-right of the
-taskbar. A separate system tray icon provides Show/Hide/Quit controls --
-the tray icon itself displays no data.
-
-Positioning is taskbar-aware: the bar sits just above the taskbar's real
-screen rectangle, so it never overlaps the shell and doesn't need to
-aggressively fight for z-order. A single "always on top" flag is set once,
-with a very light periodic re-check (every 5s) as a safety net -- cheap on
-CPU/battery.
-
 Requirements:
     pip install pythonnet pystray pillow
     (tkinter and ctypes ship with Python already)
