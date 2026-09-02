@@ -1,3 +1,8 @@
+## Description
 Uses LibreHardwareMonitor to display system info.  
 
-**Make sure to unblock the two .dll files (in properties) and run as Admin.**
+## Requires
+Python  
+pip install pythonnet pystray pillow (via Terminal)  
+
+**Unblock the two .dll files (in properties) and run as Admin.**
