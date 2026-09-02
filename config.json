@@ -1,0 +1,57 @@
+{
+  "refresh_seconds": 2,
+  "background": "transparent",
+  "opacity": 1.0,
+  "font_family": "Segoe UI",
+  "font_size": 9,
+  "position": {
+    "x": 2342,
+    "y": 1366
+  },
+  "components": [
+    {
+      "id": "cpu",
+      "label": "CPU",
+      "color": "#ffffff",
+      "hardware": "Cpu",
+      "metrics": [
+        {
+          "sensor_type": "Temperature",
+          "match": "Package",
+          "unit": "\u00b0C",
+          "decimals": 0
+        },
+        {
+          "sensor_type": "Power",
+          "match": "Package",
+          "unit": "W",
+          "decimals": 0
+        }
+      ]
+    },
+    {
+      "id": "gpu",
+      "label": "GPU",
+      "color": "#ffffff",
+      "hardware": [
+        "GpuNvidia",
+        "GpuAmd",
+        "GpuIntel"
+      ],
+      "metrics": [
+        {
+          "sensor_type": "Temperature",
+          "match": "Core",
+          "unit": "\u00b0C",
+          "decimals": 0
+        },
+        {
+          "sensor_type": "Power",
+          "match": "Power",
+          "unit": "W",
+          "decimals": 0
+        }
+      ]
+    }
+  ]
+}
