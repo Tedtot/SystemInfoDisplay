@@ -4,3 +4,5 @@ Uses [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwar
 ## Requires
 Python  
 Run setup.bat
+
+**Run with Admin**
