@@ -3,6 +3,4 @@ Uses [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwar
 
 ## Requires
 Python  
-pip install pythonnet pystray pillow (via Terminal)  
-
-**Unblock the two .dll files (in properties) and run as Admin.**
+Run setup.bat

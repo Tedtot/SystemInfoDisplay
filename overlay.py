@@ -11,22 +11,33 @@ import ctypes
 from ctypes import wintypes
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 
 import pythonnet
 pythonnet.load("netfx")  # LibreHardwareMonitorLib.dll (net472) needs classic .NET Framework
 
 import clr  # from pythonnet
-
-from pystray import Icon as TrayIcon, Menu, MenuItem
-from PIL import Image, ImageDraw
+import System
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DLL_PATH = os.path.join(BASE_DIR, "LibreHardwareMonitorLib.dll")
+DLL_PATH = os.path.join(BASE_DIR, "DLLs", "LibreHardwareMonitorLib.dll")
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+
+# pythonnet's netfx host doesn't automatically discover "python.exe.config"
+# the way a normal .NET executable would, so assembly binding redirects
+# (needed for System.Numerics.Vectors, System.Memory, etc.) never get
+# applied. Pointing the AppDomain at the config file explicitly, before any
+# relevant assembly gets loaded, fixes this without touching the global
+# Python install. This should be the same LibreHardwareMonitor.exe.config
+# that ships in the release zip -- just copy it into this folder too.
+_BINDING_CONFIG = os.path.join(BASE_DIR, "LibreHardwareMonitor.exe.config")
+if os.path.exists(_BINDING_CONFIG):
+    System.AppDomain.CurrentDomain.SetData("APP_CONFIG_FILE", _BINDING_CONFIG)
 
 if not os.path.exists(DLL_PATH):
     sys.exit("LibreHardwareMonitorLib.dll not found next to this script.")
@@ -41,6 +52,9 @@ clr.AddReference(DLL_PATH)
 
 from System import Activator  # noqa: E402
 from System.Reflection import Assembly  # noqa: E402
+
+from pystray import Icon as TrayIcon, Menu, MenuItem  # noqa: E402
+from PIL import Image, ImageDraw  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Hardware setup (via reflection, so we don't depend on pythonnet's
@@ -68,7 +82,9 @@ if ComputerType is None:
 
 computer = Activator.CreateInstance(ComputerType)
 computer.IsCpuEnabled = True
-computer.IsGpuEnabled = True
+computer.IsGpuEnabled = False  # LibreHardwareMonitorLib's NVIDIA GPU init crashes under
+                                 # pythonnet (Vector<T> type-load issue) -- read GPU via
+                                 # nvidia-smi instead, see get_nvidia_smi_text() below.
 computer.IsMotherboardEnabled = True
 computer.IsMemoryEnabled = True
 computer.IsStorageEnabled = True
@@ -130,6 +146,9 @@ def get_metric_values(hw_names, sensor_type_name, match):
 
 
 def get_component_text(component):
+    if component.get("source") == "nvidia-smi":
+        return get_nvidia_smi_text(component)
+
     hw_names = component["hardware"]
     if isinstance(hw_names, str):
         hw_names = [hw_names]
@@ -151,6 +170,31 @@ def get_component_text(component):
 
     return f"{component['label']} " + " ".join(parts)
 
+def get_nvidia_smi_text(component):
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=temperature.gpu,power.draw",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return f"{component['label']} --"
+
+        temp_str, power_str = result.stdout.strip().splitlines()[0].split(",")
+        temp = float(temp_str.strip())
+        power = float(power_str.strip())
+
+        return f"{component['label']} {temp:.0f}°C {power:.0f}W"
+
+    except Exception:
+        return f"{component['label']} --"
 
 # ---------------------------------------------------------------------------
 # Taskbar-aware positioning
@@ -168,6 +212,53 @@ def get_taskbar_rect():
     if not _user32.GetWindowRect(hwnd, ctypes.byref(rect)):
         return None
     return rect
+
+
+# ---------------------------------------------------------------------------
+# Outlined text helper (Label can't do text borders -- a Canvas can, by
+# drawing the text several times offset in the outline color underneath
+# the real text on top)
+# ---------------------------------------------------------------------------
+
+class OutlinedText:
+    def __init__(self, parent, bg, fg, font, outline="#000000", offset=1, padx=8):
+        self.font = font
+        self.fg = fg
+        self.outline = outline
+        self.offset = offset
+        self.padx = padx
+        self.canvas = tk.Canvas(parent, bg=bg, highlightthickness=0, bd=0)
+        self.text = ""
+        self._redraw()
+
+    def grid(self, **kwargs):
+        self.canvas.grid(**kwargs)
+
+    def bind(self, seq, func):
+        self.canvas.bind(seq, func)
+
+    def set_text(self, text):
+        if text == self.text:
+            return
+        self.text = text
+        self._redraw()
+
+    def _redraw(self):
+        self.canvas.delete("all")
+        w = self.font.measure(self.text) + self.padx * 2 + self.offset * 2
+        h = self.font.metrics("linespace") + self.offset * 2
+        self.canvas.configure(width=w, height=h)
+
+        cx = self.padx + self.offset
+        cy = self.offset
+
+        o = self.offset
+        for dx, dy in ((-o, 0), (o, 0), (0, -o), (0, o)):
+            self.canvas.create_text(
+                cx + dx, cy + dy, text=self.text, font=self.font,
+                fill=self.outline, anchor="nw",
+            )
+        self.canvas.create_text(cx, cy, text=self.text, font=self.font, fill=self.fg, anchor="nw")
 
 
 # ---------------------------------------------------------------------------
@@ -198,24 +289,28 @@ class Overlay:
             self.root.attributes("-alpha", config.get("opacity", 0.9))
 
         self.frame = tk.Frame(self.root, bg=bg)
-        self.frame.pack(padx=10, pady=5)
+        self.frame.pack(padx=2, pady=2)
 
         font_family = config.get("font_family", "Segoe UI")
         font_size = config.get("font_size", 12)
-        font = (font_family, font_size, "bold")
+        self.font = tkfont.Font(family=font_family, size=font_size, weight="bold")
+        outline_color = config.get("outline_color", "#000000")
+        outline_width = config.get("outline_width", 1)
 
         self.labels = {}
         for i, component in enumerate(self.components):
-            lbl = tk.Label(
-                self.frame, text=f"{component['label']} --",
-                fg=component.get("color", "#ffffff"), bg=bg, font=font, padx=8,
+            fg = component.get("color", "#ffffff")
+            otext = OutlinedText(
+                self.frame, bg=bg, fg=fg, font=self.font,
+                outline=outline_color, offset=outline_width,
             )
-            lbl.grid(row=0, column=i)
-            self.labels[component["id"]] = lbl
+            otext.set_text(f"{component['label']} --")
+            otext.grid(row=0, column=i)
+            self.labels[component["id"]] = otext
 
-            lbl.bind("<Button-1>", self._start_move)
-            lbl.bind("<B1-Motion>", self._on_move)
-            lbl.bind("<ButtonRelease-1>", self._save_position)
+            otext.bind("<Button-1>", self._start_move)
+            otext.bind("<B1-Motion>", self._on_move)
+            otext.bind("<ButtonRelease-1>", self._save_position)
 
         self.root.update_idletasks()
         self._position_window()
@@ -255,7 +350,6 @@ class Overlay:
         self._drag_x = event.x
         self._drag_y = event.y
 
-
     def _on_move(self, event):
         if self.locked:
             return
@@ -263,7 +357,6 @@ class Overlay:
         x = self.root.winfo_pointerx() - self._drag_x
         y = self.root.winfo_pointery() - self._drag_y
         self.root.geometry(f"+{x}+{y}")
-
 
     def _save_position(self, event):
         if self.locked:
@@ -288,7 +381,7 @@ class Overlay:
         self.root.after(5000, self._light_keep_on_top)
 
     def set_component_text(self, component_id, text):
-        self.labels[component_id].config(text=text)
+        self.labels[component_id].set_text(text)
 
     def show(self):
         self.root.deiconify()

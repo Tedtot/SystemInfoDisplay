@@ -4,9 +4,11 @@
   "opacity": 1.0,
   "font_family": "Segoe UI",
   "font_size": 9,
+  "outline_width": 1,
+  "outline_color": "#000000",
   "position": {
-    "x": 2342,
-    "y": 1366
+    "x": 2346,
+    "y": 1372
   },
   "components": [
     {
@@ -33,6 +35,7 @@
       "id": "gpu",
       "label": "GPU",
       "color": "#ffffff",
+      "source": "nvidia-smi",
       "hardware": [
         "GpuNvidia",
         "GpuAmd",
